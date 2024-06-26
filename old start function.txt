@@ -1,0 +1,154 @@
+void NoahKhanLabjack::start() {
+	int i;
+	
+	int skippedIntervals;
+	
+	
+	
+	std::string temp_name = this->boxName;
+	//std::cout << temp_name<<std::endl;
+	deviceType = GetDeviceType(handle);
+	
+	//uint64_t timeSinceEpochMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+	
+	//std::ofstream dataFile( temp_name + ".csv");
+
+	//dataFile << "ComputerTime" << "," << "FIO2" << "," << "FIO0" << "," << "FIO1" << "," << "AIN0" "," << "AIN1" << "," << "EIO0" << "," << "EIO1" << "," << "EIO2" << "," << "EIO3" << "," << "EIO4" << "," << "EIO5" << "," << "EIO6" << "," << "EIO7" << std::endl;
+
+	// Begin the loop
+	printf("\nStarting the loop for LabJack :  %s", temp_name.c_str());
+	// The LabJackM (LJM) library will catch the Ctrl+c signal, close
+	// all open devices, then exit the program.
+	int LJMError;
+	LJMError = LJM_eWriteAddress(handle, LIGHT_CONTROL_ADDRESS, 0, 1.0);
+	if (LJMError != LJME_NOERROR) {
+		// Deal with error
+		printf("\nError writing to address for turning off the light");
+	}
+
+	err = LJM_StartInterval(INTERVAL_HANDLE, msDelay * 1000);
+	ErrorCheck(err, "LJM_StartInterval");
+	for (int i = 0; i < tempNumFrames; i++) {
+		aNames[i] = tempNames[i];
+	}
+	for (int i = 0; i < tempNumFrames; i++) {
+		prev_aValues[i] = 0;
+	}
+	numFrames = tempNumFrames;
+	uint64_t time_temp;
+	int currentTimeInMinutes = 0;
+	
+	while (1) {
+		// configures ports according to input from user
+		
+		time_temp = getTime();
+		if (light_control) {
+			std::time_t currentTime_t = time_temp / 1000;
+			std::tm* now_tm = std::localtime(&currentTime_t);
+
+			// Check if current time is within the start and end times
+			currentTimeInMinutes = now_tm->tm_hour * 60 + now_tm->tm_min;
+			// reads in values
+			if (currentTimeInMinutes >= startTimeMins && currentTimeInMinutes <= stopTimeMins && light_flag == 0) {
+				int LJMError;
+				// handle comes from LJM_Open()
+				LJMError = LJM_eWriteAddress(handle, LIGHT_CONTROL_ADDRESS, 0, 0.0);
+				if (LJMError != LJME_NOERROR) {
+					// Deal with error
+					printf("\nError writing to address to turn on the light");
+				}
+				printf("\nLight turned on for : %s", temp_name.c_str());
+				light_flag = 1;
+			}
+			else if ((currentTimeInMinutes > stopTimeMins || currentTimeInMinutes < startTimeMins) && light_flag)
+			{
+				int LJMError;
+				// handle comes from LJM_Open()
+				LJMError = LJM_eWriteAddress(handle, LIGHT_CONTROL_ADDRESS, 0, 1.0);
+				if (LJMError != LJME_NOERROR) {
+					// Deal with error
+					printf("\nError writing to address to turn low");
+				}
+				printf("\nLight turned off for : %s", temp_name.c_str());
+				light_flag = 0;
+
+			}
+		}
+		err = LJM_eReadNames(handle, numFrames, (const char**)aNames, aValues,&errorAddress);
+		ErrorCheckWithAddress(err, errorAddress, "LJM_eReadNames");
+
+		if (temp_name == global_control_LJ) {
+			std::lock_guard<std::mutex> lock(flagMutexStop);
+			if (aValues[0] == 1 && check == 1)
+			{
+				printf("\n\n\nWaiting for the starting pulse on Labjack %s.\n", temp_name.c_str());
+				globalStopFlag = 1; check = 0;
+			}
+			else if (aValues[0] == 0 && check == 0) {
+				check = 1; globalStopFlag = 0;
+				name_timestamp = std::to_string(time_temp);
+				printf("\nStarting Labjacks at time stamp : %s \n",name_timestamp.c_str());
+			}
+		}
+		if(globalStopFlag !=1) {
+			// prints values to BIN and to csv
+			DataRecord record;
+			if (print_feature) {
+				print = printCheck();
+				if (print)
+				{
+					printf("\n\tLabjack %s ", temp_name.c_str());
+					for (i = 0; i < numFrames; i++) {
+						printf(" %s = %.4f  ", aNames[i], aValues[i]);
+					}
+					
+
+				}
+			}
+			record.digitalStatus = 0;
+			uint8_t temp = 0;
+			for (int j = 0; j < 8; ++j) {
+				temp |= (int(aValues[j + digital_startindex]) << j);
+			}
+			
+			//dataFile << time_temp << "," << aValues[0] << "," << aValues[1] << "," << aValues[2] << "," << aValues[3] << "," << aValues[4] << "," << aValues[5] << "," << aValues[6] << "," << aValues[7] << "," << aValues[8] << "," << aValues[9] << "," << aValues[10] << "," << aValues[11] << "," << aValues[12] << std::endl;
+			
+			record.digitalStatus =temp;
+			int category = static_cast<int>(aValues[light_index]/ 0.5);
+			record.lightStatus = (category<=9) ? static_cast<char>(category) : '9';
+				
+			record.pulse = aValues[pulse_index];
+			// Get the current system time as the timestamp
+			record.timestamp = time_temp;
+
+			// Generate a random analog voltage (for example, "12.34")
+
+			record.wheel = float(aValues[wheel_index]);
+			record.camera = aValues[camera_index];
+
+			// Save data to binary file
+			encodeAndSaveBinary(output_directory + "/" + temp_name + "_LJ_" + name_timestamp + ".bin", record);
+		
+		}
+		
+		
+		// waiting for next iteration of data
+		err = LJM_WaitForNextInterval(INTERVAL_HANDLE, &skippedIntervals);
+		ErrorCheck(err, "LJM_WaitForNextInterval");
+		if (skippedIntervals > 0) {
+			printf("\nSkippedIntervals: %d", skippedIntervals);
+		}
+		
+	}
+
+	// Close interval and device handles
+	err = LJM_CleanInterval(INTERVAL_HANDLE);
+	ErrorCheck(err, "LJM_CleanInterval");
+
+	err = LJM_Close(handle);
+	ErrorCheck(err, "LJM_Close");
+
+	WaitForUserIfWindows();
+	//dataFile.close();
+}
