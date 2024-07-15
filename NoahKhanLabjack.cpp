@@ -147,7 +147,7 @@ void NoahKhanLabjack::monitoringLoop() {
 void NoahKhanLabjack::processSensorData(uint64_t currentTime) {
 	if (this->boxName == global_control_LJ) {
 		std::lock_guard<std::mutex> lock(flagMutexStop);
-		printf("\n %f", aValues[0]);
+		
 		
 		if (aValues[0] == 1 && check == 1)
 		{
