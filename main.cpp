@@ -59,6 +59,38 @@ std::string trim(const std::string& str) {
 	size_t last = str.find_last_not_of(' ');
 	return str.substr(first, (last - first + 1));
 }
+std::chrono::steady_clock::time_point lastTimePressed;
+std::mutex mtx;
+
+void handleKeyPressAndTimeout() {
+	const std::chrono::minutes timeoutDuration(1); // 1 minute timeout
+	bool disable_print = 0;
+
+	while (true) {
+		char ch;
+		if (disable_print == 0)
+		{
+			if (std::cin >> ch && (ch == 'p' || ch == 'P')) {
+				std::lock_guard<std::mutex> lock(mtx);
+				print_feature = true;
+				disable_print = 1;
+				lastTimePressed = std::chrono::steady_clock::now();
+				std::cout << "Print feature enabled.\n";
+			}
+		}
+		
+			
+		 if (disable_print && (std::chrono::steady_clock::now() - lastTimePressed >= timeoutDuration)) {
+				print_feature = false;
+				disable_print = 0;
+				std::cout << "Print feature disabled due to timeout.\n";
+			}
+		
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Reduces CPU usage
+	}
+}
+
 
 int main(int argc, char* argv[]) {
 	std::cout << "\n\nStarting Noah Khan LabJack software v1.0\n\n";
@@ -222,9 +254,11 @@ int main(int argc, char* argv[]) {
 		sortAccordingToBoxSerials(aSerials, boxSerials, number_devices);
 		std::cout << "Sorted Serial numbers : \n";
 		for (int i = 0; i < number_devices; ++i) {
-			std::cout << "\t"<<aSerials[i] << std::endl;
+			std::cout << "\t" << aSerials[i] << std::endl;
 		}
 	}
+	else if (number_devices < 4)
+		std::cout << "Total number of devices connected are less than 4.\n";
 	else {
 		std::cout << "The connected LabJack Serial Numbers do not match with the ones in the configuration file.\n";
 		_sleep(3000);
@@ -246,6 +280,8 @@ int main(int argc, char* argv[]) {
 			LabJack->start();
 			});
 	}
+	if (print_feature == 0)
+		threads.emplace_back(handleKeyPressAndTimeout);
 
 	// Instantiate ThreadGuard right after thread creation
 	ThreadGuard guard(threads);
