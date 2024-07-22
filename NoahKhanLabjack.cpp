@@ -149,12 +149,12 @@ void NoahKhanLabjack::processSensorData(uint64_t currentTime) {
 		std::lock_guard<std::mutex> lock(flagMutexStop);
 		
 		
-		if (aValues[0] == 1 && check == 1)
+		if (aValues[0] == 0 && check == 1)
 		{
 			printf("\n\n\nWaiting for the starting pulse on Labjack %s.\n", this->boxName.c_str());
 			globalStopFlag = 1; check = 0;
 		}
-		else if (aValues[0] == 0 && check == 0) {
+		else if (aValues[0] == 1 && check == 0) {
 			check = 1; globalStopFlag = 0;
 			name_timestamp = std::to_string(currentTime);
 			
